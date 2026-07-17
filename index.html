@@ -1,0 +1,645 @@
+import React, { useState, useMemo } from "react";
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+} from "recharts";
+import { Thermometer, Flame, Snowflake, FlaskConical, Droplets } from "lucide-react";
+
+/* ---------------------------------------------------------
+   TOKENS
+   paper:    #FBF7EE  (warm lab-book cream)
+   ink:      #2E2A22  (near-black brown, reads like pencil)
+   ember:    #D9603B  (hot / cup Cl / C1)
+   ice:      #2F7A93  (cold / plastic container / C2)
+   moss:     #4C7A4E  (correct / conclusion accent)
+   pencil answer font: "Kalam" (handwritten feel for pupil input)
+   display font: "Space Grotesk"
+   body font: "Inter"
+--------------------------------------------------------- */
+
+const TIMES = [0, 5, 10, 15, 20, 25, 30];
+
+const FONT_IMPORT = `
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=Kalam:wght@400;700&display=swap');
+`;
+
+function Blank({ value, onChange, width = 90, placeholder = "" }) {
+  return (
+    <input
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      style={{
+        width,
+        fontFamily: "'Kalam', cursive",
+        fontSize: 15,
+        color: "#B34A2C",
+        borderBottom: "2px solid #2E2A22",
+        borderTop: "none",
+        borderLeft: "none",
+        borderRight: "none",
+        background: "transparent",
+        outline: "none",
+        textAlign: "center",
+        margin: "0 4px",
+      }}
+    />
+  );
+}
+
+function Select({ value, onChange, options }) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      style={{
+        fontFamily: "'Kalam', cursive",
+        fontSize: 14,
+        color: "#B34A2C",
+        border: "2px solid #2E2A22",
+        borderRadius: 6,
+        background: "#fff",
+        padding: "2px 4px",
+      }}
+    >
+      <option value="">choose...</option>
+      {options.map((o) => (
+        <option key={o} value={o}>
+          {o}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function ThermoGauge({ label, value, color, max = 60 }) {
+  const v = value === "" || isNaN(Number(value)) ? 0 : Number(value);
+  const pct = Math.max(0, Math.min(1, v / max));
+  const tubeH = 110;
+  const fillH = tubeH * pct;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 64 }}>
+      <svg width="40" height={tubeH + 34} viewBox={`0 0 40 ${tubeH + 34}`}>
+        <rect x="14" y="4" width="12" height={tubeH} rx="6" fill="#EDE6D6" stroke="#2E2A22" strokeWidth="2" />
+        <rect
+          x="14"
+          y={4 + (tubeH - fillH)}
+          width="12"
+          height={fillH}
+          rx="6"
+          fill={color}
+          style={{ transition: "height 0.3s, y 0.3s" }}
+        />
+        <circle cx="20" cy={tubeH + 18} r="14" fill={color} stroke="#2E2A22" strokeWidth="2" />
+      </svg>
+      <div style={{ fontFamily: "'Inter'", fontSize: 11, color: "#6b6455", marginTop: 4, textAlign: "center" }}>
+        {label}
+      </div>
+      <div style={{ fontFamily: "'Space Grotesk'", fontWeight: 700, fontSize: 15, color: "#2E2A22" }}>
+        {value === "" ? "—" : `${value}°C`}
+      </div>
+    </div>
+  );
+}
+
+function DataTable({ labelA, labelB, colorA, colorB, dataA, dataB, onChangeA, onChangeB }) {
+  return (
+    <div style={{ overflowX: "auto" }}>
+      <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 460 }}>
+        <thead>
+          <tr>
+            <th style={thStyle}>Time (min)</th>
+            <th style={{ ...thStyle, color: colorA }}>{labelA} (°C)</th>
+            <th style={{ ...thStyle, color: colorB }}>{labelB} (°C)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {TIMES.map((t, i) => (
+            <tr key={t} style={{ background: i % 2 ? "#F7F1E3" : "transparent" }}>
+              <td style={tdStyle}>{t}</td>
+              <td style={tdStyle}>
+                <input
+                  type="number"
+                  value={dataA[i]}
+                  onChange={(e) => onChangeA(i, e.target.value)}
+                  style={inputStyle(colorA)}
+                  placeholder="—"
+                />
+              </td>
+              <td style={tdStyle}>
+                <input
+                  type="number"
+                  value={dataB[i]}
+                  onChange={(e) => onChangeB(i, e.target.value)}
+                  style={inputStyle(colorB)}
+                  placeholder="—"
+                />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+const thStyle = {
+  fontFamily: "'Space Grotesk'",
+  fontSize: 13,
+  fontWeight: 600,
+  textAlign: "center",
+  padding: "8px 10px",
+  borderBottom: "2px solid #2E2A22",
+  color: "#2E2A22",
+};
+const tdStyle = {
+  textAlign: "center",
+  padding: "6px 8px",
+  borderBottom: "1px solid #E4DBC5",
+};
+const inputStyle = (color) => ({
+  width: 60,
+  textAlign: "center",
+  fontFamily: "'Kalam', cursive",
+  fontSize: 15,
+  color,
+  border: "1.5px solid #D8CDB0",
+  borderRadius: 6,
+  padding: "3px 2px",
+  outline: "none",
+});
+
+function ExperimentChart({ dataA, dataB, labelA, labelB, colorA, colorB }) {
+  const chartData = TIMES.map((t, i) => ({
+    time: t,
+    [labelA]: dataA[i] === "" ? null : Number(dataA[i]),
+    [labelB]: dataB[i] === "" ? null : Number(dataB[i]),
+  }));
+  return (
+    <div style={{ width: "100%", height: 260 }}>
+      <ResponsiveContainer>
+        <LineChart data={chartData} margin={{ top: 10, right: 20, left: -10, bottom: 4 }}>
+          <CartesianGrid stroke="#E4DBC5" />
+          <XAxis
+            dataKey="time"
+            label={{ value: "Time (min)", position: "insideBottom", offset: -2, fontSize: 12 }}
+            tick={{ fontSize: 12, fontFamily: "Inter" }}
+          />
+          <YAxis
+            domain={[0, 60]}
+            label={{ value: "Temp (°C)", angle: -90, position: "insideLeft", fontSize: 12 }}
+            tick={{ fontSize: 12, fontFamily: "Inter" }}
+          />
+          <Tooltip />
+          <Legend wrapperStyle={{ fontFamily: "Inter", fontSize: 12 }} />
+          <Line type="monotone" dataKey={labelA} stroke={colorA} strokeWidth={3} connectNulls dot={{ r: 3 }} />
+          <Line type="monotone" dataKey={labelB} stroke={colorB} strokeWidth={3} connectNulls dot={{ r: 3 }} />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function SectionCard({ children }) {
+  return (
+    <div
+      style={{
+        background: "#FFFDF8",
+        border: "1.5px solid #E4DBC5",
+        borderRadius: 14,
+        padding: "18px 20px",
+        marginBottom: 18,
+        boxShadow: "0 1px 0 rgba(46,42,34,0.04)",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function H2({ children, icon }) {
+  return (
+    <h2
+      style={{
+        fontFamily: "'Space Grotesk'",
+        fontWeight: 700,
+        fontSize: 18,
+        color: "#2E2A22",
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        marginTop: 0,
+        marginBottom: 10,
+      }}
+    >
+      {icon}
+      {children}
+    </h2>
+  );
+}
+
+/* ---------------- Experiment 3: Heat on the Move ---------------- */
+function Exp3({ state, setState }) {
+  const upd = (patch) => setState((s) => ({ ...s, ...patch }));
+  const updA = (i, v) => {
+    const arr = [...state.a];
+    arr[i] = v;
+    upd({ a: arr });
+  };
+  const updB = (i, v) => {
+    const arr = [...state.b];
+    arr[i] = v;
+    upd({ b: arr });
+  };
+  return (
+    <div>
+      <SectionCard>
+        <H2 icon={<Thermometer size={20} color="#D9603B" />}>Aim</H2>
+        <p style={pStyle}>
+          To find out that heat flows from a{" "}
+          <Blank value={state.blanks.aim1} onChange={(v) => upd({ blanks: { ...state.blanks, aim1: v } })} width={90} />{" "}
+          object to a{" "}
+          <Blank value={state.blanks.aim2} onChange={(v) => upd({ blanks: { ...state.blanks, aim2: v } })} width={90} />{" "}
+          object, until both objects reach the same temperature.
+        </p>
+      </SectionCard>
+
+      <SectionCard>
+        <H2>What we need</H2>
+        <p style={pStyle}>Plastic container &nbsp;•&nbsp; Cup Cl &nbsp;•&nbsp; Thermometer / temperature sensors &nbsp;•&nbsp; Datalogger &nbsp;•&nbsp; Stopwatch</p>
+        <p style={{ ...pStyle, color: "#6b6455", fontSize: 13 }}>
+          Set up cup Cl (with hot water) inside the plastic container (with cooler water). Measure both temperatures every 5 minutes for 30 minutes.
+        </p>
+      </SectionCard>
+
+      <SectionCard>
+        <H2>Record your results</H2>
+        <div style={{ display: "flex", gap: 22, flexWrap: "wrap", alignItems: "flex-start" }}>
+          <div style={{ display: "flex", gap: 10 }}>
+            <ThermoGauge label="Cup Cl" value={state.a[state.a.length - 1] || state.a.find((x) => x !== "") || ""} color="#D9603B" />
+            <ThermoGauge label="Plastic container" value={state.b[state.b.length - 1] || state.b.find((x) => x !== "") || ""} color="#2F7A93" />
+          </div>
+          <div style={{ flex: 1, minWidth: 300 }}>
+            <DataTable
+              labelA="Cup Cl"
+              labelB="Plastic container"
+              colorA="#D9603B"
+              colorB="#2F7A93"
+              dataA={state.a}
+              dataB={state.b}
+              onChangeA={updA}
+              onChangeB={updB}
+            />
+          </div>
+        </div>
+      </SectionCard>
+
+      <SectionCard>
+        <H2>Your graph</H2>
+        <ExperimentChart dataA={state.a} dataB={state.b} labelA="Cup Cl" labelB="Plastic container" colorA="#D9603B" colorB="#2F7A93" />
+      </SectionCard>
+
+      <SectionCard>
+        <H2>What changed?</H2>
+        <AnalysisTable state={state} upd={upd} />
+      </SectionCard>
+
+      <SectionCard>
+        <H2 icon={<FlaskConical size={20} color="#4C7A4E" />}>Let's conclude</H2>
+        <p style={pStyle}>
+          The temperature of the water in cup Cl was{" "}
+          <Blank value={state.blanks.c1} onChange={(v) => upd({ blanks: { ...state.blanks, c1: v } })} /> than the
+          temperature of the water in the plastic container.
+        </p>
+        <p style={pStyle}>
+          Hence, heat flowed from the water in the{" "}
+          <Blank value={state.blanks.c2} onChange={(v) => upd({ blanks: { ...state.blanks, c2: v } })} width={130} /> to
+          the water in the{" "}
+          <Blank value={state.blanks.c3} onChange={(v) => upd({ blanks: { ...state.blanks, c3: v } })} width={150} />.
+        </p>
+        <p style={pStyle}>
+          Heat continued to flow until the water in both cup Cl and the plastic container reached the{" "}
+          <Blank value={state.blanks.c4} onChange={(v) => upd({ blanks: { ...state.blanks, c4: v } })} /> temperature.
+        </p>
+      </SectionCard>
+    </div>
+  );
+}
+
+function AnalysisTable({ state, upd }) {
+  const opts = ["increased", "decreased", "remained the same"];
+  const rows = [
+    { key: "cl", label: "Water in cup Cl" },
+    { key: "plastic", label: "Water in the plastic container" },
+  ];
+  const cols = [
+    { key: "temp1", label: "Change in temperature\n(0–15 min)" },
+    { key: "energy1", label: "Change in energy\n(0–15 min)" },
+    { key: "temp2", label: "Change in temperature\n(15–30 min)" },
+    { key: "energy2", label: "Change in energy\n(15–30 min)" },
+  ];
+  return (
+    <div style={{ overflowX: "auto" }}>
+      <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 640 }}>
+        <thead>
+          <tr>
+            <th style={thStyle}></th>
+            {cols.map((c) => (
+              <th key={c.key} style={{ ...thStyle, whiteSpace: "pre-line", fontSize: 12 }}>
+                {c.label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, ri) => (
+            <tr key={r.key} style={{ background: ri % 2 ? "#F7F1E3" : "transparent" }}>
+              <td style={{ ...tdStyle, textAlign: "left", fontFamily: "Inter", fontSize: 13 }}>{r.label}</td>
+              {cols.map((c) => {
+                const k = `${r.key}_${c.key}`;
+                return (
+                  <td style={tdStyle} key={c.key}>
+                    <Select
+                      value={state.analysis[k] || ""}
+                      onChange={(v) => upd({ analysis: { ...state.analysis, [k]: v } })}
+                      options={opts}
+                    />
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/* ---------------- Experiment 4 / 5 (conductor tests) ---------------- */
+function ConductorExperiment({ state, setState, hotOrCold, icon }) {
+  const upd = (patch) => setState((s) => ({ ...s, ...patch }));
+  const updA = (i, v) => {
+    const arr = [...state.a];
+    arr[i] = v;
+    upd({ a: arr });
+  };
+  const updB = (i, v) => {
+    const arr = [...state.b];
+    arr[i] = v;
+    upd({ b: arr });
+  };
+  const stayWord = hotOrCold === "hot" ? "hot" : "cold";
+  return (
+    <div>
+      <SectionCard>
+        <H2 icon={icon}>Aim</H2>
+        <p style={pStyle}>
+          To identify which cup, C1 or C2, is a good conductor of heat and which is a poor conductor of heat, using{" "}
+          {stayWord} water.
+        </p>
+      </SectionCard>
+
+      <SectionCard>
+        <H2>What we need</H2>
+        <p style={pStyle}>Cup C1 &nbsp;•&nbsp; Cup C2 &nbsp;•&nbsp; Plastic container &nbsp;•&nbsp; Thermometer / temperature sensors &nbsp;•&nbsp; Datalogger &nbsp;•&nbsp; Stopwatch</p>
+      </SectionCard>
+
+      <SectionCard>
+        <H2>Predict</H2>
+        <p style={pStyle}>
+          Which cup, C1 or C2, do you think the {stayWord} water will stay {stayWord} for longer? Cup{" "}
+          <Blank value={state.predict} onChange={(v) => upd({ predict: v })} width={60} />
+        </p>
+        <p style={{ ...pStyle, color: "#6b6455", fontSize: 13 }}>
+          Pour 150 ml of {stayWord} water into Cup C1 and 150 ml into Cup C2. Measure both temperatures every 5 minutes for 30 minutes.
+        </p>
+      </SectionCard>
+
+      <SectionCard>
+        <H2>Record your results</H2>
+        <div style={{ display: "flex", gap: 22, flexWrap: "wrap", alignItems: "flex-start" }}>
+          <div style={{ display: "flex", gap: 10 }}>
+            <ThermoGauge label="Cup C1" value={state.a.find((x) => x !== "") ?? ""} color="#D9603B" />
+            <ThermoGauge label="Cup C2" value={state.b.find((x) => x !== "") ?? ""} color="#2F7A93" />
+          </div>
+          <div style={{ flex: 1, minWidth: 300 }}>
+            <DataTable
+              labelA="Cup C1"
+              labelB="Cup C2"
+              colorA="#D9603B"
+              colorB="#2F7A93"
+              dataA={state.a}
+              dataB={state.b}
+              onChangeA={updA}
+              onChangeB={updB}
+            />
+          </div>
+        </div>
+      </SectionCard>
+
+      <SectionCard>
+        <H2>Your graph</H2>
+        <ExperimentChart dataA={state.a} dataB={state.b} labelA="Cup C1" labelB="Cup C2" colorA="#D9603B" colorB="#2F7A93" />
+        <p style={pStyle}>
+          Based on your graph, which cup did the {stayWord} water stay {stayWord} for longer? Cup{" "}
+          <Blank value={state.blanks.which} onChange={(v) => upd({ blanks: { ...state.blanks, which: v } })} width={60} />
+        </p>
+      </SectionCard>
+
+      <SectionCard>
+        <H2 icon={<FlaskConical size={20} color="#4C7A4E" />}>Let's conclude</H2>
+        <p style={pStyle}>
+          The {stayWord} water stayed {stayWord} for a longer time in cup{" "}
+          <Blank value={state.blanks.b1} onChange={(v) => upd({ blanks: { ...state.blanks, b1: v } })} width={60} />{" "}
+          because it is a{" "}
+          <Blank value={state.blanks.b2} onChange={(v) => upd({ blanks: { ...state.blanks, b2: v } })} width={90} />{" "}
+          conductor of heat. Heat passes through cup{" "}
+          <Blank value={state.blanks.b3} onChange={(v) => upd({ blanks: { ...state.blanks, b3: v } })} width={60} />{" "}
+          more slowly than through cup{" "}
+          <Blank value={state.blanks.b4} onChange={(v) => upd({ blanks: { ...state.blanks, b4: v } })} width={60} />.
+        </p>
+      </SectionCard>
+    </div>
+  );
+}
+
+const pStyle = { fontFamily: "'Inter'", fontSize: 15, lineHeight: 1.7, color: "#2E2A22", margin: "0 0 10px" };
+
+const emptyRow = () => TIMES.map(() => "");
+const initExp3 = () => ({ a: emptyRow(), b: emptyRow(), blanks: {}, analysis: {} });
+const initConductor = () => ({ a: emptyRow(), b: emptyRow(), blanks: {}, predict: "" });
+
+export default function HeatLabApp() {
+  const [meta, setMeta] = useState({ name: "", cls: "", date: "" });
+  const [tab, setTab] = useState("exp3");
+  const [exp3, setExp3] = useState(initExp3());
+  const [exp4, setExp4] = useState(initConductor());
+  const [exp5, setExp5] = useState(initConductor());
+
+  const tabs = [
+    { id: "exp3", label: "Exp 3", sub: "Heat on the Move", icon: <Thermometer size={16} /> },
+    { id: "exp4", label: "Exp 4", sub: "Hot Water & Conductors", icon: <Flame size={16} /> },
+    { id: "exp5", label: "Exp 5", sub: "Cold Water & Conductors", icon: <Snowflake size={16} /> },
+  ];
+
+  return (
+    <div
+      style={{
+        minHeight: "100%",
+        background:
+          "repeating-linear-gradient(0deg, transparent, transparent 27px, rgba(46,42,34,0.05) 28px), repeating-linear-gradient(90deg, transparent, transparent 27px, rgba(46,42,34,0.05) 28px), #FBF7EE",
+        padding: "20px 16px 40px",
+        fontFamily: "'Inter'",
+      }}
+    >
+      <style>{FONT_IMPORT}</style>
+
+      <div style={{ maxWidth: 880, margin: "0 auto" }}>
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 6 }}>
+          <div
+            style={{
+              width: 42,
+              height: 42,
+              borderRadius: 10,
+              background: "#2E2A22",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Droplets size={22} color="#F4C97A" />
+          </div>
+          <div>
+            <h1 style={{ fontFamily: "'Space Grotesk'", fontWeight: 700, fontSize: 24, margin: 0, color: "#2E2A22" }}>
+              Heat &amp; Temperature Lab
+            </h1>
+            <div style={{ fontFamily: "'Inter'", fontSize: 13, color: "#6b6455" }}>
+              Primary 4 Science &middot; Record your readings, watch the graph draw itself
+            </div>
+          </div>
+        </div>
+
+        {/* Name / Class / Date */}
+        <div
+          style={{
+            display: "flex",
+            gap: 16,
+            flexWrap: "wrap",
+            background: "#FFFDF8",
+            border: "1.5px solid #E4DBC5",
+            borderRadius: 12,
+            padding: "12px 16px",
+            margin: "16px 0",
+          }}
+        >
+          <label style={labelRow}>
+            Name:
+            <input style={metaInput} value={meta.name} onChange={(e) => setMeta({ ...meta, name: e.target.value })} />
+          </label>
+          <label style={labelRow}>
+            Class:
+            <input style={metaInput} value={meta.cls} onChange={(e) => setMeta({ ...meta, cls: e.target.value })} />
+          </label>
+          <label style={labelRow}>
+            Date:
+            <input
+              type="date"
+              style={metaInput}
+              value={meta.date}
+              onChange={(e) => setMeta({ ...meta, date: e.target.value })}
+            />
+          </label>
+        </div>
+
+        {/* Tabs */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "10px 16px",
+                borderRadius: 10,
+                border: tab === t.id ? "2px solid #2E2A22" : "1.5px solid #E4DBC5",
+                background: tab === t.id ? "#2E2A22" : "#FFFDF8",
+                color: tab === t.id ? "#FBF7EE" : "#2E2A22",
+                cursor: "pointer",
+                fontFamily: "'Space Grotesk'",
+                fontWeight: 600,
+                fontSize: 14,
+              }}
+            >
+              {t.icon}
+              <span>
+                {t.label} <span style={{ fontWeight: 400, opacity: 0.85 }}>&middot; {t.sub}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {tab === "exp3" && <Exp3 state={exp3} setState={setExp3} />}
+        {tab === "exp4" && (
+          <ConductorExperiment state={exp4} setState={setExp4} hotOrCold="hot" icon={<Flame size={20} color="#D9603B" />} />
+        )}
+        {tab === "exp5" && (
+          <ConductorExperiment
+            state={exp5}
+            setState={setExp5}
+            hotOrCold="cold"
+            icon={<Snowflake size={20} color="#2F7A93" />}
+          />
+        )}
+
+        <div style={{ textAlign: "center", marginTop: 24 }}>
+          <button
+            onClick={() => window.print()}
+            style={{
+              fontFamily: "'Space Grotesk'",
+              fontWeight: 600,
+              fontSize: 14,
+              padding: "10px 22px",
+              borderRadius: 10,
+              border: "2px solid #2E2A22",
+              background: "#F4C97A",
+              color: "#2E2A22",
+              cursor: "pointer",
+            }}
+          >
+            Print my results
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const labelRow = {
+  display: "flex",
+  alignItems: "center",
+  gap: 6,
+  fontFamily: "'Space Grotesk'",
+  fontSize: 13,
+  fontWeight: 600,
+  color: "#2E2A22",
+};
+const metaInput = {
+  fontFamily: "'Kalam', cursive",
+  fontSize: 15,
+  color: "#B34A2C",
+  border: "none",
+  borderBottom: "2px solid #2E2A22",
+  background: "transparent",
+  outline: "none",
+  padding: "2px 4px",
+  minWidth: 120,
+};
